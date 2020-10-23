@@ -1,0 +1,53 @@
+
+********************************************************************************
+Changelog cam635_driver
+
+ESPROS Photonics Corp.
+
+Author: linas.sinkunas@espros.com
+********************************************************************************
+
+Software v.1.6.0 - 14.10.2020
+
+  - Code refactoring according to ROS C++ style
+  - Removed camera info
+
+
+Software v.1.5.0 - 30.06.2020
+
+  - Added device cam635-S. Driver can work with both cam635 and cam635-S cameras.
+  - Added lens transformation table cam635-S
+  - Adapted driver for new ROS neotic version
+  - Fixed HDR mode
+
+
+Software v.1.4.0 Document dated 07.01.2020
+
+  - Changed cartasian transformation algorithm by using lens transformation table
+
+
+Software v.1.3.0 - 08.05.2019
+
+  - Changed point cloud mm -> m (millimeters to meters)
+  - Gave NAN values for non valid point cloud pixels
+  - Changed rviz configuration
+
+
+Software v.1.2.0 
+
+  - Fixed undistortion
+  - Fixed cartesian transformation
+  - Optimised speed
+
+
+Software v.1.1.0
+
+  - Fixed a communication problem for ROS kinetic distribution
+  - Added automatic integration time
+  - Added more Wide and Narrow field modes 
+
+
+
+Software v.1.0.0
+
+ - First cam635_ROS_driver version for melodic ROS distribution

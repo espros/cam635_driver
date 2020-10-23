@@ -1,0 +1,71 @@
+<?xml version="1.0"?>
+
+<launch>
+  <arg name="ns" default="espros_cam635"/>
+  <arg name="nn" default="camera"/>
+  <arg name="respawn" default="false"/>
+  <arg name="port_name" default="/dev/ttyACM0"/>
+  <arg name="frame_rate" default="30"/>
+  <arg name="stream" default="distance"/>
+  <arg name="integration_time_tof1"  default="2000"/>
+  <arg name="integration_time_tof2"  default="0"/>
+  <arg name="integration_time_tof3"  default="0"/>
+  <arg name="integration_time_tof4"  default="0"/>
+  <arg name="integration_time_gray" default="10000"/>
+  <arg name="low_power_illumination" default="false"/>
+  <arg name="kalman_factor"   default="1000"/>
+  <arg name="kalman_threshold" default="300"/>
+  <arg name="average_filter" default="false"/>
+  <arg name="min_amplitude" default="100"/>
+  <arg name="offset_distance" default="0"/>
+  <arg name="interference_detection" default="false"/>
+  <arg name="interference_detection_threshold" default="0"/>
+  <arg name="interference_detection_last_value" default="false"/>
+  <arg name="image_type" default="1"/>
+  <arg name="mode" default="0"/>
+  <arg name="channel" default="0"/>
+  <arg name="roi_left_x" default="0"/>
+  <arg name="roi_top_y" default="0"/>
+  <arg name="roi_right_x" default="159"/>
+  <arg name="roi_bottom_y" default="59"/>
+
+
+  <group ns="$(arg ns)">
+    <node pkg="espros_cam635"
+          type="cam635_node"
+          name="$(arg nn)"
+          output="screen"
+          respawn="$(arg respawn)">
+
+      <param name="stream" value="$(arg stream)"/>
+      <param name="port_name" value="$(arg port_name)"/>
+      <param name="frame_rate" value="$(arg frame_rate)"/>
+      <param name="integration_time_tof1" value="$(arg integration_time_tof1)"/>
+      <param name="integration_time_tof2" value="$(arg integration_time_tof2)"/>
+      <param name="integration_time_tof3" value="$(arg integration_time_tof3)"/>
+      <param name="integration_time_tof4" value="$(arg integration_time_tof4)"/>
+      <param name="integration_time_gray" value="$(arg integration_time_gray)"/>
+      <param name="low_power_illumination" value="$(arg low_power_illumination)"/>
+      <param name="kalman_factor" value="$(arg kalman_factor)"/>
+      <param name="kalman_threshold" value="$(arg kalman_threshold)"/>
+      <param name="average_filter" value="$(arg average_filter)"/>
+      <param name="min_amplitude" value="$(arg min_amplitude)"/>
+      <param name="offset_distance" value="$(arg offset_distance)"/>      
+      <param name="interference_detection" value="$(arg interference_detection)"/>
+      <param name="interference_detection_threshold" value="$(arg interference_detection_threshold)"/>
+      <param name="interference_detection_last_value" value="$(arg interference_detection_last_value)"/>
+      <param name="image_type"   value="$(arg image_type)"/>
+      <param name="mode"        value="$(arg mode)"/>
+      <param name="channel"     value="$(arg channel)"/>
+      <param name="roi_left_x"   value="$(arg roi_left_x)"/>
+      <param name="roi_top_y"    value="$(arg roi_top_y)"/>
+      <param name="roi_right_x"  value="$(arg roi_right_x)"/>
+      <param name="roi_bottom_y" value="$(arg roi_bottom_y)"/>
+
+    </node>
+
+    <node name="rviz" pkg="rviz" type="rviz" args= "-d $(find espros_cam635)/rviz/config_cam635.rviz" > </node>
+    <node name="rqt_reconfigure" pkg="rqt_reconfigure" type="rqt_reconfigure"> </node>
+
+  </group>
+</launch>
