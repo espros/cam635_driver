@@ -16,8 +16,7 @@
 #include <string>
 #include <vector>
 
-#include <boost/signals2.hpp>
-#include <boost/optional/optional_io.hpp>
+#include "cam_signal.h"
 
 namespace com_lib
 {
@@ -127,6 +126,7 @@ class Communication_IF
     virtual ErrorNumber_e setHdr(const uint hdr) = 0;
     virtual ErrorNumber_e setInterferenceDetection(const bool enabled, const bool useLastValue, const int limit) = 0; // --> no signal in case of success
     virtual ErrorNumber_e setIlluminationPower(const bool lowPower) = 0;
+
 	
   //Update commands
     virtual void updateFirmware(const std::vector<uint8_t> &updateFile) = 0;                                                  // --> firmwareUpdateProgress
@@ -147,13 +147,10 @@ class Communication_IF
     virtual ErrorNumber_e getIntegrationTime3d(unsigned int &integrationTime) = 0;
 
   //signals    
-    boost::signals2::signal<void (const uint16_t *dcs, const uint32_t *distance, const uint32_t *amplitude, const unsigned int numPixel)> sigReceivedDcsDistanceAmplitude16; //DCS with 16Bits
-    boost::signals2::signal<void (const uint32_t *dcs, const uint32_t *distance, const uint32_t *amplitude, const unsigned int numPixel)> sigReceivedDcsDistanceAmplitude32; //DCS with 32Bits
-    boost::signals2::signal<void (const uint16_t *dcs, const unsigned int numPixel)> sigReceivedDcs16;   //DCS with 16Bits
-    boost::signals2::signal<void (const uint32_t *dcs, const unsigned int numPixel)> sigReceivedDcs32;  //DCS with 32Bits    
-    boost::signals2::signal<void (const int16_t temperature)> sigReceivedTemperature;
-    boost::signals2::signal<void (const unsigned int)> sigFirmwareUpdateProgress;    
-    boost::signals2::signal<void (const ErrorNumber_e errorNumber)> sigError;
+    Gallant::Signal1<int16_t> sigReceivedTemperature;
+    Gallant::Signal1<unsigned int> sigFirmwareUpdateProgress;
+    Gallant::Signal1<ErrorNumber_e> sigError;
+
 };
 } //end namespace com_lib
 

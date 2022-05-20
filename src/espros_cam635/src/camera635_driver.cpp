@@ -33,10 +33,10 @@ pointCloud2Publisher(pointCloud2Publisher_)
 
     initCommunication();
 
-    communication.sigReceivedGrayscale.connect(boost::bind(&Camera635Driver::updateGrayscaleFrame, this, _1));
-    communication.sigReceivedDistance.connect(boost::bind(&Camera635Driver::updateDistanceFrame, this, _1));
-    communication.sigReceivedDistanceAmplitude.connect(boost::bind(&Camera635Driver::updateDistanceAmplitudeFrame, this, _1));
-    communication.sigReceivedDistanceGrayscale.connect(boost::bind(&Camera635Driver::updateDistanceGrayscaleFrame, this, _1));    
+    communication.sigReceivedGrayscale.Connect(this, &Camera635Driver::updateGrayscaleFrame);
+    communication.sigReceivedDistance.Connect(this, &Camera635Driver::updateDistanceFrame);
+    communication.sigReceivedDistanceAmplitude.Connect(this, &Camera635Driver::updateDistanceAmplitudeFrame);
+    communication.sigReceivedDistanceGrayscale.Connect(this, &Camera635Driver::updateDistanceGrayscaleFrame);
 
     imageHeaderMsg.data.resize(42);
 
@@ -129,6 +129,8 @@ void Camera635Driver::setParameters()
         }
         
         communication.setModulationFrequency(MODULATION_FREQUENCY_20MHZ);
+
+        communication.setModulationChannel(gSettings->channel);
 
         communication.setRoi(gSettings->roi_leftX, gSettings->roi_topY, gSettings->roi_rightX, gSettings->roi_bottomY);         
 

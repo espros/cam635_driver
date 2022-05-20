@@ -17,7 +17,6 @@
 #undef  termio
 #include <termios.h>
 
-typedef boost::asio::serial_port_base asio_serial;
 using namespace std;
 
 namespace com_lib
@@ -68,6 +67,8 @@ vector<string> SerialConnection::availableDevices()
  */
 bool SerialConnection::openPort(std::string &portName)
 {  
+    ROS_INFO("SerialConnection::openPort: %s", portName.data());
+
     if(fileDescription > 0) closePort();
 
     fileDescription = open(portName.data(), O_RDWR | O_NOCTTY | O_SYNC);
@@ -76,10 +77,10 @@ bool SerialConnection::openPort(std::string &portName)
         fileDescription = open("/dev/ttyACM0", O_RDWR | O_NOCTTY | O_SYNC);
 
         if(fileDescription <=0){          
-            fileDescription = open("/dev/ttyACM1", O_RDWR | O_NOCTTY | O_SYNC);
+            fileDescription = open("/dev/ttyACM1", O_RDWR | O_NOCTTY | O_SYNC);            
 
             if(fileDescription <=0){
-                fileDescription = open("/dev/ttyACM2", O_RDWR | O_NOCTTY | O_SYNC);
+                fileDescription = open("/dev/ttyACM2", O_RDWR | O_NOCTTY | O_SYNC);                
 
                 if(fileDescription <=0){
                     ROS_ERROR ("Error %d opening %s: %s", errno, "/dev/ttyACM2", strerror (errno));

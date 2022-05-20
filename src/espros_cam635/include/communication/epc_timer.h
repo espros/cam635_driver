@@ -14,7 +14,8 @@ namespace com_lib
 
 class EpcTimer {
 public:
-  explicit EpcTimer(const std::chrono::milliseconds &period, const std::function<void ()> &func): m_period(period), m_func(func), flag(false), active(false)
+  explicit EpcTimer(const std::chrono::milliseconds &period, const std::function<void ()> &func):
+  m_period(period),  m_func(func), flag(false), active(false)
   {    
     m_thread = std::thread([this] {
     std::unique_lock<std::mutex> lck(mutex_);

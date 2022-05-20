@@ -15,9 +15,8 @@
 #include <iostream>
 #include <cstring>
 #include <ros/ros.h>
+#include <functional>
 
-#include <boost/signals2.hpp>
-#include <boost/optional/optional_io.hpp>
 
 #define IDENTIFY_SIZE                 12
 #define GET_TEMPERATURE_SIZE          10
@@ -46,32 +45,35 @@ static const unsigned int TIMEOUT_NORMAL = 1000;     ///<Communication timeout i
 
 Communication::Communication(): updateController(this)
 {  
-  serialConnection = new SerialConnection;
+    serialConnection = new SerialConnection;
 
-  timeout = TIMEOUT_CONNECTING;
-  timeoutTimer = new EpcTimer(std::chrono::milliseconds(timeout), boost::bind(&Communication::onTimeout, this));
+    timeout = TIMEOUT_CONNECTING;
 
-  serialConnection->sigReceivedData.connect(boost::bind(&Communication::onReceivedData, this, _1, _2));
+    //timeoutTimer = new EpcTimer(std::chrono::milliseconds(timeout), boost::bind(&Communication::onTimeout, this));
+    std::function<void ()> func = [](){ &Communication::onTimeout; };
+    timeoutTimer = new EpcTimer(std::chrono::milliseconds(timeout), func);
 
-  //Signals update controller to communication
-  updateController.sigUpdateProgress.connect(boost::bind(&Communication::onFirmwareUpdateProgress, this, _1));
-  updateController.sigUpdateFinished.connect(boost::bind(&Communication::onFirmwareUpdateFinished, this));
+    serialConnection->sigReceivedData.Connect(this, &Communication::onReceivedData);
 
-  //Signals from communication to update controller
-  sigReceivedAck.connect(boost::bind(&UpdateController::onReceivedAck, &updateController));
+    //Signals update controller to communication
+    updateController.sigUpdateProgress.Connect(this, &Communication::onFirmwareUpdateProgress);
+    updateController.sigUpdateFinished.Connect(this, &Communication::onFirmwareUpdateFinished);
 
-  //Member initialization
-  state = CommunicationState_e::COMMUNICATION_STATE_UNCONNECTED;
-  connectedDevice = Device_e::DEVICE_UNKNOWN;
-  startStreamMode = false;
+    //Signals from communication to update controller
+    sigReceivedAck.Connect(&updateController, &UpdateController::onReceivedAck);
+
+    //Member initialization
+    state = CommunicationState_e::COMMUNICATION_STATE_UNCONNECTED;
+    connectedDevice = Device_e::DEVICE_UNKNOWN;
+    startStreamMode = false;
 
 }
 
 Communication::~Communication()
 {
-  timeoutTimer->stop();
-  delete timeoutTimer;
-  delete serialConnection;
+    timeoutTimer->stop();
+    delete timeoutTimer;
+    delete serialConnection;
 }
 
 /**
@@ -84,21 +86,20 @@ Communication::~Communication()
  */
 bool Communication::openInternal(string &portName, Device_e &device, bool &isBootloader)
 {
-  if(!serialConnection->openPort(portName)){
-    return false;
-  }
+    if(!serialConnection->openPort(portName))
+        return false;
 
-  //If the port is open, try to read the identification. If this works, assume the connection as ok
-  ErrorNumber_e errorNumber = getIdentification(device, isBootloader);
+    //If the port is open, try to read the identification. If this works, assume the connection as ok
+    ErrorNumber_e errorNumber = getIdentification(device, isBootloader);
 
-  if ((errorNumber != ErrorNumber_e::ERROR_NUMMBER_NO_ERROR) || (setupDevice(device) == false))
-  {
-    close();
-    ROS_ERROR("Identification could not be read. It is probably a valid serial port but with no espros device");
-    return false;
-  }
+    if ((errorNumber != ErrorNumber_e::ERROR_NUMMBER_NO_ERROR) || (setupDevice(device) == false))
+    {
+        close();
+        ROS_ERROR("Identification could not be read. It is probably a valid serial port but with no espros device");
+        return false;
+    }
 
-  return true;
+    return true;
 }
 
 /**
@@ -110,18 +111,17 @@ bool Communication::openInternal(string &portName, Device_e &device, bool &isBoo
  * @return Port open or not
  */
 bool Communication::open(string &portName)
-{
+{    
+    bool deviceIsInBootloader = false;
 
-  bool deviceIsInBootloader = false;
+    bool connected = openInternal(portName, connectedDevice, deviceIsInBootloader);
 
-  bool connected = openInternal(portName, connectedDevice, deviceIsInBootloader);
+    if(connected){
+        state = COMMUNICATION_STATE_NORMAL;
+        timeout = TIMEOUT_NORMAL;
+    }
 
-  if(connected){
-    state = COMMUNICATION_STATE_NORMAL;
-    timeout = TIMEOUT_NORMAL;
-  }
-
-  return connected;
+    return connected;
 }
 
 /**
@@ -130,8 +130,8 @@ bool Communication::open(string &portName)
  */
 void Communication::close()
 {
-  serialConnection->closePort();
-  state = COMMUNICATION_STATE_UNCONNECTED;
+    serialConnection->closePort();
+    state = COMMUNICATION_STATE_UNCONNECTED;
 }
 
 /**
@@ -144,25 +144,25 @@ void Communication::close()
  */
 string Communication::createDeviceString(const Device_e device)
 {
-  string deviceString;
+    string deviceString;
 
-  switch(device)
-  {
-  case Device_e::DEVICE_TOFFRAME611:
-    deviceString.append("Tof>frame 611");
-    break;
-  case Device_e::DEVICE_TOFRANGE611:
-    deviceString.append("Tof>range 611");
-    break;
-  case Device_e::DEVICE_UNKNOWN:
-    deviceString.append("unknown Espros device");
-    break;
-  default:
-    deviceString.append("invalid device");
-    break;
-  }
+    switch(device)
+    {
+    case Device_e::DEVICE_TOFFRAME611:
+        deviceString.append("Tof>frame 611");
+        break;
+    case Device_e::DEVICE_TOFRANGE611:
+        deviceString.append("Tof>range 611");
+        break;
+    case Device_e::DEVICE_UNKNOWN:
+        deviceString.append("unknown Espros device");
+        break;
+    default:
+        deviceString.append("invalid device");
+        break;
+    }
 
-  return deviceString;
+    return deviceString;
 }
 
 /**
@@ -175,12 +175,12 @@ string Communication::createDeviceString(const Device_e device)
  */
 string Communication::getDeviceName()
 {
-  return createDeviceString(connectedDevice);
+    return createDeviceString(connectedDevice);
 }
 
 Device_e Communication::getDevice()
 {
-  return connectedDevice;
+    return connectedDevice;
 }
 
 /**
@@ -193,25 +193,25 @@ Device_e Communication::getDevice()
  * @param errorNumber Error number to send
  */
 
-void Communication::sendErrorSignal(const ErrorNumber_e errorNumber)
+void Communication::sendErrorSignal(ErrorNumber_e errorNumber)
 {
-  //Emit the error internally
-  sigErrorInternal(errorNumber); //lsi
+    //Emit the error internally
+    sigErrorInternal(errorNumber); //lsi
 
 
-  //Emit the error external
-  switch(state)
-  {
-  case CommunicationState_e::COMMUNICATION_STATE_NORMAL:
-    //no break
-  case CommunicationState_e::COMMUNICATION_STATE_UPDATE:
-    ROS_ERROR_STREAM("Error: " << errorNumber);
-    sigError(errorNumber);
-    break;
-  default:
-    //Do not emit the error external
-    break;
-  }
+    //Emit the error external
+    switch(state)
+    {
+    case CommunicationState_e::COMMUNICATION_STATE_NORMAL:
+        //no break
+    case CommunicationState_e::COMMUNICATION_STATE_UPDATE:
+        ROS_ERROR_STREAM("Error: " << errorNumber);
+        //sigError(errorNumber);
+        break;
+    default:
+        //Do not emit the error external
+        break;
+    }
 }
 
 /**
@@ -226,29 +226,29 @@ void Communication::sendErrorSignal(const ErrorNumber_e errorNumber)
  */
 ErrorNumber_e Communication::sendCommand(uint8_t *data, int size, bool streamMode)
 {  
-  if(!streamMode || startStreamMode){
-    serialConnection->sendData(data);
-    startStreamMode = false;
-    ROS_DEBUG("Communication::sendCommand(): startStreamMode:  %d  %d", streamMode, startStreamMode);
-  }
-
-  ROS_DEBUG("read command size: %d", size);
-
-  int sz = 0;
-  int count = 0;
-  serialConnection->rxArray.clear();
-
-  for(int n= 0; n < size; n+= sz){
-    sz = serialConnection->readRxData(size);
-    if(sz == -1){
-      ROS_ERROR("Communication::sendCommand serialConnection->readRxData sz=-1 count = %d ", count);
-      return ERROR_NUMBER_SERIAL_PORT_ERROR;
-    }else{
-      count += sz;
+    if(!streamMode || startStreamMode){
+        serialConnection->sendData(data);
+        startStreamMode = false;
+        ROS_DEBUG("Communication::sendCommand(): startStreamMode:  %d  %d", streamMode, startStreamMode);
     }
-  }
 
-  return ERROR_NUMMBER_NO_ERROR;
+    ROS_DEBUG("read command size: %d", size);
+
+    int sz = 0;
+    int count = 0;
+    serialConnection->rxArray.clear();
+
+    for(int n= 0; n < size; n+= sz){
+        sz = serialConnection->readRxData(size);
+        if(sz == -1){
+            ROS_ERROR("Communication::sendCommand serialConnection->readRxData sz=-1 count = %d ", count);
+            return ERROR_NUMBER_SERIAL_PORT_ERROR;
+        }else{
+            count += sz;
+        }
+    }
+
+    return ERROR_NUMMBER_NO_ERROR;
 }
 
 /**
@@ -262,14 +262,14 @@ ErrorNumber_e Communication::sendCommand(uint8_t *data, int size, bool streamMod
  */
 ErrorNumber_e Communication::sendCommandWithoutData(const uint8_t command, int size, bool streamMode)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
 
-  return sendCommand(output, size, streamMode);
+    return sendCommand(output, size, streamMode);
 }
 
 /**
@@ -284,17 +284,17 @@ ErrorNumber_e Communication::sendCommandWithoutData(const uint8_t command, int s
  */
 ErrorNumber_e Communication::sendCommandSingleByte(const uint8_t command, const uint8_t payload, int size, bool streaming)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
 
-  //Add the single byte at the first position
-  output[CommunicationConstants::Command::INDEX_DATA] = payload;
+    //Add the single byte at the first position
+    output[CommunicationConstants::Command::INDEX_DATA] = payload;
 
-  return sendCommand(output, size, streaming);
+    return sendCommand(output, size, streaming);
 }
 
 /**
@@ -309,17 +309,17 @@ ErrorNumber_e Communication::sendCommandSingleByte(const uint8_t command, const 
  */
 ErrorNumber_e Communication::sendCommandUint16(const uint8_t command, const uint16_t payload)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
 
-  //Add the payload
-  Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload);
+    //Add the payload
+    Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload);
 
-  return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+    return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
 }
 
 
@@ -335,20 +335,18 @@ ErrorNumber_e Communication::sendCommandUint16(const uint8_t command, const uint
  */
 ErrorNumber_e Communication::sendCommandInt16(const uint8_t command, const int16_t payload)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
 
-  //Add the payload
-  Util::setInt16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload);
+    //Add the payload
+    Util::setInt16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload);
 
-  return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+    return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
 }
-
-
 
 /**
  * @brief Send 2 x 16bit / 4byte command
@@ -363,19 +361,48 @@ ErrorNumber_e Communication::sendCommandInt16(const uint8_t command, const int16
  */
 ErrorNumber_e Communication::sendCommand2xUint16(const uint8_t command, const uint16_t payload0, const uint16_t payload1)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
 
-  //Add the payload values
-  Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload0);
-  Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA+2, payload1);
+    //Add the payload values
+    Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA, payload0);
+    Util::setUint16LittleEndian(output, CommunicationConstants::Command::INDEX_DATA+2, payload1);
 
-  return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+    return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
 }
+
+/**
+ * @brief Send 2 x 8bit / 2byte command
+ *
+ * This function is used for commands with two 8bit value as payload
+ *
+ * @param command Command to send
+ * @param payload0 First payload value to send
+ * @param payload1 Second payload value to send
+ * @param blocking set to true tur run command blocking
+ * @return Error code from ErrorNumber_e
+ */
+
+ErrorNumber_e Communication::sendCommand2xUint8(const uint8_t command, const uint8_t payload0, const uint8_t payload1)
+{
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+
+    memset(output, 0, sizeof(output));
+
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = command;
+    output[CommunicationConstants::Command::INDEX_DATA] = payload0;
+    output[CommunicationConstants::Command::INDEX_DATA + 1] = payload1;
+
+    ROS_INFO("Communication::sendCommand2xUint8: %d %d %d", command, payload0, payload1);
+
+    return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+}
+
 
 /**
  * @brief Timeout callback
@@ -384,21 +411,21 @@ ErrorNumber_e Communication::sendCommand2xUint16(const uint8_t command, const ui
  */
 void Communication::onTimeout()
 {
-  //Prevent the timer of generating further signals
-  timeoutTimer->stop();
+    //Prevent the timer of generating further signals
+    timeoutTimer->stop();
 
-  switch(state)
-  {
-  case CommunicationState_e::COMMUNICATION_STATE_UPDATE:
-    updateController.cancel();
-    onFirmwareUpdateProgress(0);
-    state = CommunicationState_e::COMMUNICATION_STATE_NORMAL;
-    break;
-  default:
-    break;
-  }
+    switch(state)
+    {
+    case CommunicationState_e::COMMUNICATION_STATE_UPDATE:
+        updateController.cancel();
+        onFirmwareUpdateProgress(0);
+        state = CommunicationState_e::COMMUNICATION_STATE_NORMAL;
+        break;
+    default:
+        break;
+    }
 
-  sendErrorSignal(ErrorNumber_e::ERROR_NUMBER_TIMEOUT);
+    sendErrorSignal(ErrorNumber_e::ERROR_NUMBER_TIMEOUT);
 }
 
 
@@ -413,7 +440,7 @@ void Communication::onTimeout()
  */
 void Communication::onFirmwareUpdateProgress(const unsigned int progress)
 {
-  sigFirmwareUpdateProgress(progress);
+    //sigFirmwareUpdateProgress(progress);
 }
 
 /**
@@ -423,7 +450,7 @@ void Communication::onFirmwareUpdateProgress(const unsigned int progress)
  */
 void Communication::onFirmwareUpdateFinished()
 {
-  state = CommunicationState_e::COMMUNICATION_STATE_NORMAL;
+    state = CommunicationState_e::COMMUNICATION_STATE_NORMAL;
 }
 
 /**
@@ -435,9 +462,9 @@ void Communication::onFirmwareUpdateFinished()
  */
 void Communication::processIdentification(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so get the data at index 0
-  uint32_t identification = Util::getUint32LittleEndian(array, 0);
-  sigReceivedIdentification(identification);
+    //Here the array is already cut to the payload, so get the data at index 0
+    uint32_t identification = Util::getUint32LittleEndian(array, 0);
+    sigReceivedIdentification(identification);
 }
 
 /**
@@ -449,10 +476,10 @@ void Communication::processIdentification(const std::vector<uint8_t> &array)
  */
 void Communication::processChipInformation(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so subtract the header size from the indexes
-  uint16_t waferId = static_cast<uint16_t>(Util::getUint16LittleEndian(array, CommunicationConstants::ChipInformation::INDEX_WAFER_ID - CommunicationConstants::Data::SIZE_HEADER));
-  uint16_t chipId  = static_cast<uint16_t>(Util::getUint16LittleEndian(array, CommunicationConstants::ChipInformation::INDEX_CHIP_ID - CommunicationConstants::Data::SIZE_HEADER));
-  sigReceivedChipInformation(chipId, waferId);
+    //Here the array is already cut to the payload, so subtract the header size from the indexes
+    uint16_t waferId = static_cast<uint16_t>(Util::getUint16LittleEndian(array, CommunicationConstants::ChipInformation::INDEX_WAFER_ID - CommunicationConstants::Data::SIZE_HEADER));
+    uint16_t chipId  = static_cast<uint16_t>(Util::getUint16LittleEndian(array, CommunicationConstants::ChipInformation::INDEX_CHIP_ID - CommunicationConstants::Data::SIZE_HEADER));
+    sigReceivedChipInformation(chipId, waferId);
 }
 
 /**
@@ -464,9 +491,9 @@ void Communication::processChipInformation(const std::vector<uint8_t> &array)
  */
 void Communication::processFirmwareRelease(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so get the data at index 0
-  uint32_t firmwareRelease = Util::getUint32LittleEndian(array, 0);
-  sigReceivedFirmwareRelease(firmwareRelease);
+    //Here the array is already cut to the payload, so get the data at index 0
+    uint32_t firmwareRelease = Util::getUint32LittleEndian(array, 0);
+    sigReceivedFirmwareRelease(firmwareRelease);
 }
 
 /**
@@ -478,9 +505,9 @@ void Communication::processFirmwareRelease(const std::vector<uint8_t> &array)
  */
 void Communication::processIntegrationTime(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so get the data at index 0
-  uint16_t integrationTime = static_cast<uint16_t>(Util::getUint16LittleEndian(array, 0));
-  sigReceivedIntegrationTime(integrationTime);
+    //Here the array is already cut to the payload, so get the data at index 0
+    uint16_t integrationTime = static_cast<uint16_t>(Util::getUint16LittleEndian(array, 0));
+    sigReceivedIntegrationTime(integrationTime);
 }
 
 /**
@@ -492,10 +519,10 @@ void Communication::processIntegrationTime(const std::vector<uint8_t> &array)
  */
 void Communication::processTemperature(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so get the data at index 0
-  int16_t temperature = static_cast<int16_t>(Util::getInt16LittleEndian(array, 0));
-  sigReceivedTemperature(temperature);
-  ROS_INFO_STREAM("temperature = " << temperature);
+    //Here the array is already cut to the payload, so get the data at index 0
+    int16_t temperature = static_cast<int16_t>(Util::getInt16LittleEndian(array, 0));
+    //sigReceivedTemperature(temperature);
+    ROS_INFO_STREAM("temperature = " << temperature);
 }
 
 /**
@@ -507,11 +534,11 @@ void Communication::processTemperature(const std::vector<uint8_t> &array)
  */
 void Communication::processProductionInfo(const std::vector<uint8_t> &array)
 {
-  //Here the array is already cut to the payload, so get the data at index 0
-  uint8_t year = array.at(0);
-  uint8_t week = array.at(1);
-  sigReceivedProductionInfo(year, week);
-  ROS_INFO_STREAM("year = " << year << "week = " << week);
+    //Here the array is already cut to the payload, so get the data at index 0
+    uint8_t year = array.at(0);
+    uint8_t week = array.at(1);
+    sigReceivedProductionInfo(year, week);
+    ROS_INFO_STREAM("year = " << year << "week = " << week);
 }
 
 /**
@@ -523,76 +550,76 @@ void Communication::processProductionInfo(const std::vector<uint8_t> &array)
  * @param array Pointer to the received data
  * @param type Type of the data
  */
-void Communication::onReceivedData(const std::vector<uint8_t> &array, const uint8_t type)
+void Communication::onReceivedData(std::vector<uint8_t> &array, uint8_t type)
 {
-  //Stop the timeout timer
-  //timeoutTimer->stop();
+    //Stop the timeout timer
+    //timeoutTimer->stop();
 
-  if(array.size()>3)
-    ROS_DEBUG("Communication::onReceivedData: d0= %d, d1= %d, d2= %d, d3= %d, ...,  type= %d", array[0], array[1], array[2], array[3], type);
-  else ROS_DEBUG("Communication::onReceivedData size= %d  type= %d", (int)array.size(),  type);
+    if(array.size()>3)
+        ROS_DEBUG("Communication::onReceivedData: d0= %d, d1= %d, d2= %d, d3= %d, ...,  type= %d", array[0], array[1], array[2], array[3], type);
+    else ROS_DEBUG("Communication::onReceivedData size= %d  type= %d", (int)array.size(),  type);
 
 
-  switch(type)
-  {
-  case CommunicationConstants::Type::DATA_ACK:
-    sigReceivedAck();
-    ROS_DEBUG("received Ack");
-    break;
-  case CommunicationConstants::Type::DATA_NACK:
-    sendErrorSignal(ErrorNumber_e::ERROR_NUMBER_NOT_ACKNOWLEDGE);
-    ROS_DEBUG("received Nack");
-    break;
-  case CommunicationConstants::Type::DATA_IDENTIFICATION:
-    processIdentification(array);
-    ROS_DEBUG("received Identification");
-    break;
-  case CommunicationConstants::Type::DATA_CHIP_INFORMATION:
-    processChipInformation(array);
-    ROS_DEBUG("received Chip Information");
-    break;
-  case CommunicationConstants::Type::DATA_DISTANCE_AMPLITUDE:
-    processDistanceAmplitude(array);
-    ROS_DEBUG("received distance amplitude");
-    break;
-  case CommunicationConstants::Type::DATA_DISTANCE_GRAYSCALE:
-    processDistanceGrayscale(array);
-    ROS_DEBUG("received distance amplitude");
-    break;
-  case CommunicationConstants::Type::DATA_TEMPERATURE:
-    processTemperature(array);
-    ROS_DEBUG("received temperature");
-    break;
-  case CommunicationConstants::Type::DATA_DISTANCE:
-    processDistance(array);
-    ROS_DEBUG("received distance");
-    break;
-  case CommunicationConstants::Type::DATA_GRAYSCALE:
-    processGrayscale(array);
-    ROS_DEBUG("receivedGrayscale");
-    break;
-  case CommunicationConstants::Type::DATA_LENS_CALIBRATION_DATA:
-    processLensCalibrationData(array);
-    ROS_DEBUG("received lens calibration data info");
-    break;
-  case CommunicationConstants::Type::DATA_FIRMWARE_RELEASE:
-    processFirmwareRelease(array);
-    ROS_DEBUG("received firmware release");
-    break;
-  case CommunicationConstants::Type::DATA_INTEGRATION_TIME:
-    processIntegrationTime(array);
-    ROS_DEBUG("received integration time");
-    break;
-  case CommunicationConstants::Type::DATA_PRODUCTION_INFO:
-    processProductionInfo(array);
-    ROS_DEBUG("received production info");
-    break;
-  default:
-    ROS_DEBUG("received unknown type= %d", type);
-    break;
-  }
+    switch(type)
+    {
+    case CommunicationConstants::Type::DATA_ACK:
+        sigReceivedAck();
+        ROS_DEBUG("received Ack");
+        break;
+    case CommunicationConstants::Type::DATA_NACK:
+        sendErrorSignal(ErrorNumber_e::ERROR_NUMBER_NOT_ACKNOWLEDGE);
+        ROS_DEBUG("received Nack");
+        break;
+    case CommunicationConstants::Type::DATA_IDENTIFICATION:
+        processIdentification(array);
+        ROS_DEBUG("received Identification");
+        break;
+    case CommunicationConstants::Type::DATA_CHIP_INFORMATION:
+        processChipInformation(array);
+        ROS_DEBUG("received Chip Information");
+        break;
+    case CommunicationConstants::Type::DATA_DISTANCE_AMPLITUDE:
+        processDistanceAmplitude(array);
+        ROS_DEBUG("received distance amplitude");
+        break;
+    case CommunicationConstants::Type::DATA_DISTANCE_GRAYSCALE:
+        processDistanceGrayscale(array);
+        ROS_DEBUG("received distance amplitude");
+        break;
+    case CommunicationConstants::Type::DATA_TEMPERATURE:
+        processTemperature(array);
+        ROS_DEBUG("received temperature");
+        break;
+    case CommunicationConstants::Type::DATA_DISTANCE:
+        processDistance(array);
+        ROS_DEBUG("received distance");
+        break;
+    case CommunicationConstants::Type::DATA_GRAYSCALE:
+        processGrayscale(array);
+        ROS_DEBUG("receivedGrayscale");
+        break;
+    case CommunicationConstants::Type::DATA_LENS_CALIBRATION_DATA:
+        processLensCalibrationData(array);
+        ROS_DEBUG("received lens calibration data info");
+        break;
+    case CommunicationConstants::Type::DATA_FIRMWARE_RELEASE:
+        processFirmwareRelease(array);
+        ROS_DEBUG("received firmware release");
+        break;
+    case CommunicationConstants::Type::DATA_INTEGRATION_TIME:
+        processIntegrationTime(array);
+        ROS_DEBUG("received integration time");
+        break;
+    case CommunicationConstants::Type::DATA_PRODUCTION_INFO:
+        processProductionInfo(array);
+        ROS_DEBUG("received production info");
+        break;
+    default:
+        ROS_DEBUG("received unknown type= %d", type);
+        break;
+    }
 
-  sigReceivedAnswer();
+    sigReceivedAnswer();
 }
 
 /**
@@ -626,23 +653,23 @@ void Communication::onError(QSerialPort::SerialPortError errorMessage __attribut
  */
 void Communication::sendCommandFirmwareUpdateStart(const unsigned int fileSize)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Write the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
+    //Write the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
 
-  //Write the update password
-  Util::setUint24LittleEndian(output, CommunicationConstants::Update::INDEX_INDEX, CommunicationConstants::Update::PASSWORD_DELETE);
+    //Write the update password
+    Util::setUint24LittleEndian(output, CommunicationConstants::Update::INDEX_INDEX, CommunicationConstants::Update::PASSWORD_DELETE);
 
-  //Write the control bytes
-  output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_START;
+    //Write the control bytes
+    output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_START;
 
-  //Write the file size
-  Util::setUint32LittleEndian(output, CommunicationConstants::Update::INDEX_DATA, fileSize);
+    //Write the file size
+    Util::setUint32LittleEndian(output, CommunicationConstants::Update::INDEX_DATA, fileSize);
 
-  sendCommand(output, false);
+    sendCommand(output, false);
 }
 
 /**
@@ -657,24 +684,24 @@ void Communication::sendCommandFirmwareUpdateStart(const unsigned int fileSize)
  */
 void Communication::sendCommandFirmwareUpdateWriteData(const uint8_t *dataToWrite, const uint32_t index, const unsigned int bytesToWrite)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Write the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
+    //Write the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
 
-  //Write the control byte
-  output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_WRITE_DATA;
+    //Write the control byte
+    output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_WRITE_DATA;
 
-  //Write the index
-  Util::setUint24LittleEndian(output, CommunicationConstants::Update::INDEX_INDEX, index);
+    //Write the index
+    Util::setUint24LittleEndian(output, CommunicationConstants::Update::INDEX_INDEX, index);
 
-  //Clear and copy the payload
-  memset(&output[CommunicationConstants::Update::INDEX_DATA], 0, CommunicationConstants::Command::SIZE_PAYLOAD);
-  memcpy(&output[CommunicationConstants::Update::INDEX_DATA], dataToWrite, bytesToWrite);
+    //Clear and copy the payload
+    memset(&output[CommunicationConstants::Update::INDEX_DATA], 0, CommunicationConstants::Command::SIZE_PAYLOAD);
+    memcpy(&output[CommunicationConstants::Update::INDEX_DATA], dataToWrite, bytesToWrite);
 
-  sendCommand(output, false);
+    sendCommand(output, false);
 }
 
 /**
@@ -685,17 +712,17 @@ void Communication::sendCommandFirmwareUpdateWriteData(const uint8_t *dataToWrit
  */
 void Communication::sendCommandFirmwareUpdateFinished()
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Write the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
+    //Write the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_UPDATE_FIRMWARE;
 
-  //Write the control byte
-  output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_COMPLETE;
+    //Write the control byte
+    output[CommunicationConstants::Update::INDEX_CONTROL] = CommunicationConstants::Update::CONTROL_COMPLETE;
 
-  sendCommand(output, false);
+    sendCommand(output, false);
 }
 
 /**
@@ -706,7 +733,7 @@ void Communication::sendCommandFirmwareUpdateFinished()
  */
 void Communication::sendCommandJumpToBootloader()
 {
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_JUMP_TO_BOOTLOADER, false);
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_JUMP_TO_BOOTLOADER, false);
 }
 
 
@@ -721,12 +748,12 @@ void Communication::sendCommandJumpToBootloader()
  */
 ErrorNumber_e Communication::setPower(const bool enabled)
 {
-  uint8_t controlByte = 0;
+    uint8_t controlByte = 0;
 
-  //Set the control byte --> true != 1
-  if (enabled)  controlByte = 1;
+    //Set the control byte --> true != 1
+    if (enabled)  controlByte = 1;
 
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_POWER, controlByte);
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_POWER, controlByte);
 }
 
 
@@ -748,51 +775,51 @@ ErrorNumber_e Communication::setPower(const bool enabled)
  */
 ErrorNumber_e Communication::getIdentification(Device_e &device, bool &isBootloader, unsigned int &version)
 {
-  U32Helper identificationHelper;
+    U32Helper identificationHelper;
 
-  //Temporary connect the signal to the helper
-  boost::signals2::connection cn = sigReceivedIdentification.connect(boost::bind(&U32Helper::onReceivedData,  &identificationHelper, _1));
+    //Temporary connect the signal to the helper
+    sigReceivedIdentification.Connect(&identificationHelper, &U32Helper::onReceivedData);
 
-  //Send this command blocking
-  ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_IDENTIFY, IDENTIFY_SIZE);
+    //Send this command blocking
+    ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_IDENTIFY, IDENTIFY_SIZE);
 
-  //The helper has the value
-  uint32_t identificationValue = identificationHelper.getValue();
+    //The helper has the value
+    uint32_t identificationValue = identificationHelper.getValue();
 
-  //Disconnect the signal from the helper
-  cn.disconnect();
+    //Disconnect the signal from the helper
+    sigReceivedIdentification.Disconnect(&identificationHelper, &U32Helper::onReceivedData);
 
-  //Check, if the Bootloader Flag is set
-  isBootloader = false;
-  if (identificationValue & CommunicationConstants::Identification::VALUE_BOOTLOADER)
-    isBootloader = true;
+    //Check, if the Bootloader Flag is set
+    isBootloader = false;
+    if (identificationValue & CommunicationConstants::Identification::VALUE_BOOTLOADER)
+        isBootloader = true;
 
-  //Mask out the combination of chip type and devic
-  unsigned int chipTypeDevice = (identificationValue & CommunicationConstants::Identification::MASK_CHIP_TYPE_DEVICE) >> CommunicationConstants::Identification::SHIFT_CHIP_TYPE_DEVICE;
-  switch(chipTypeDevice)
-  {
-  case CommunicationConstants::Identification::DEVICE_TOFFRAME611:
-    device = Device_e::DEVICE_TOFFRAME611;
-    break;
-  case CommunicationConstants::Identification::DEVICE_TOFRANGE611:
-    device = Device_e::DEVICE_TOFRANGE611;
-    break;
-  case CommunicationConstants::Identification::DEVICE_TOFCAM635:
-    device = Device_e::DEVICE_TOFCAM635;
-    break;
-  case CommunicationConstants::Identification::DEVICE_TOFCC635:
-    device = Device_e::DEVICE_TOFCC635;
-    break;
-  default:
-    device = Device_e::DEVICE_UNKNOWN;
-    break;
-  }
+    //Mask out the combination of chip type and devic
+    unsigned int chipTypeDevice = (identificationValue & CommunicationConstants::Identification::MASK_CHIP_TYPE_DEVICE) >> CommunicationConstants::Identification::SHIFT_CHIP_TYPE_DEVICE;
+    switch(chipTypeDevice)
+    {
+    case CommunicationConstants::Identification::DEVICE_TOFFRAME611:
+        device = Device_e::DEVICE_TOFFRAME611;
+        break;
+    case CommunicationConstants::Identification::DEVICE_TOFRANGE611:
+        device = Device_e::DEVICE_TOFRANGE611;
+        break;
+    case CommunicationConstants::Identification::DEVICE_TOFCAM635:
+        device = Device_e::DEVICE_TOFCAM635;
+        break;
+    case CommunicationConstants::Identification::DEVICE_TOFCC635:
+        device = Device_e::DEVICE_TOFCC635;
+        break;
+    default:
+        device = Device_e::DEVICE_UNKNOWN;
+        break;
+    }
 
 
-  //Mask out the version
-  version = (identificationValue & CommunicationConstants::Identification::MASK_VERSION) >> CommunicationConstants::Identification::SHIFT_VERSION;
+    //Mask out the version
+    version = (identificationValue & CommunicationConstants::Identification::MASK_VERSION) >> CommunicationConstants::Identification::SHIFT_VERSION;
 
-  return status;
+    return status;
 }
 
 
@@ -809,9 +836,9 @@ ErrorNumber_e Communication::getIdentification(Device_e &device, bool &isBootloa
  */
 ErrorNumber_e Communication::getIdentification(Device_e &device, bool &isBootloader)
 {
-  unsigned int versionNotUsed;
+    unsigned int versionNotUsed;
 
-  return getIdentification(device, isBootloader, versionNotUsed);
+    return getIdentification(device, isBootloader, versionNotUsed);
 }
 
 /**
@@ -823,22 +850,22 @@ ErrorNumber_e Communication::getIdentification(Device_e &device, bool &isBootloa
  */
 ErrorNumber_e Communication::getChipInformation(uint16_t &chipId, uint16_t &waferId)
 {
-  ChipInformationHelper chipInformationHelper;
+    ChipInformationHelper chipInformationHelper;
 
-  //Temporary connect the signal to the helper
-  boost::signals2::connection cn = sigReceivedChipInformation.connect(boost::bind(&ChipInformationHelper::onReceivedChipInformation, &chipInformationHelper, _1, _2));
+    //Temporary connect the signal to the helper
+    sigReceivedChipInformation.Connect(&chipInformationHelper, &ChipInformationHelper::onReceivedChipInformation);
 
-  //Send this command blocking
-  ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_CHIP_INFORMATION, GET_CHIP_INFORMATION_SIZE);
+    //Send this command blocking
+    ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_CHIP_INFORMATION, GET_CHIP_INFORMATION_SIZE);
 
-  //The helper has the value
-  chipId = chipInformationHelper.getChipId();
-  waferId = chipInformationHelper.getWaferId();
+    //The helper has the value
+    chipId = chipInformationHelper.getChipId();
+    waferId = chipInformationHelper.getWaferId();
 
-  //Disconnect the signal from the helper
-  cn.disconnect();
+    //Disconnect the signal from the helper
+    sigReceivedChipInformation.Disconnect(&chipInformationHelper, &ChipInformationHelper::onReceivedChipInformation);
 
-  return status;
+    return status;
 }
 
 /**
@@ -850,21 +877,21 @@ ErrorNumber_e Communication::getChipInformation(uint16_t &chipId, uint16_t &wafe
  */
 ErrorNumber_e Communication::getFirmwareRelease(unsigned int &major, unsigned int &minor)
 {
-  U32Helper releaseHelper;
+    U32Helper releaseHelper;
 
-  //Temporary connect the signal to the helper
-  boost::signals2::connection cn = sigReceivedFirmwareRelease.connect(boost::bind(&U32Helper::onReceivedData, &releaseHelper, _1));
+    //Temporary connect the signal to the helper
+    sigReceivedFirmwareRelease.Connect(&releaseHelper, &U32Helper::onReceivedData);
 
-  //Send this command blocking
-  ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_FIRMWARE_RELEASE, GET_FIRMWARE_VERSION_SIZE);
+    //Send this command blocking
+    ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_FIRMWARE_RELEASE, GET_FIRMWARE_VERSION_SIZE);
 
-  //Disconnect the signal from the helper
-  cn.disconnect();
+    //Disconnect the signal from the helper
+    sigReceivedFirmwareRelease.Disconnect(&releaseHelper, &U32Helper::onReceivedData);
 
-  major = releaseHelper.getValueMsb();
-  minor = releaseHelper.getValueLsb();
+    major = releaseHelper.getValueMsb();
+    minor = releaseHelper.getValueLsb();
 
-  return status;
+    return status;
 }
 
 /**
@@ -874,7 +901,7 @@ ErrorNumber_e Communication::getFirmwareRelease(unsigned int &major, unsigned in
  */
 void Communication::getTemperature()
 {
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_TEMPERATURE, GET_TEMPERATURE_SIZE);
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_TEMPERATURE, GET_TEMPERATURE_SIZE);
 }
 
 /**
@@ -888,22 +915,22 @@ void Communication::getTemperature()
  */
 ErrorNumber_e Communication::getProductionInfo(unsigned int &year, unsigned int &week)
 {
-  ProductionInformationHelper productionInformationHelper;
+    ProductionInformationHelper productionInformationHelper;
 
-  //Temporary connect the signal to the helper
-  boost::signals2::connection cn = sigReceivedProductionInfo.connect(boost::bind(&ProductionInformationHelper::onReceivedProductionInformation, &productionInformationHelper, _1, _2));
+    //Temporary connect the signal to the helper
+    sigReceivedProductionInfo.Connect(&productionInformationHelper, &ProductionInformationHelper::onReceivedProductionInformation);
 
-  //Send this command blocking
-  ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_PRODUCTION_INFO, true);
+    //Send this command blocking
+    ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_PRODUCTION_INFO, true);
 
-  //The helper has the value
-  year = productionInformationHelper.getYear();
-  week = productionInformationHelper.getWeek();
+    //The helper has the value
+    year = productionInformationHelper.getYear();
+    week = productionInformationHelper.getWeek();
 
-  //Disconnect the signal from the helper
-  cn.disconnect();
+    //Disconnect the signal from the helper
+    sigReceivedProductionInfo.Disconnect(&productionInformationHelper, &ProductionInformationHelper::onReceivedProductionInformation);
 
-  return status;
+    return status;
 }
 
 
@@ -913,19 +940,19 @@ ErrorNumber_e Communication::getProductionInfo(unsigned int &year, unsigned int 
 
 void Communication::getDistanceGrayscale(unsigned int acquisitionMode, unsigned int opMode, unsigned int hdr)
 {
-  int dataSize;
-  if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A ||  opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_MANUAL ||
-     opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_RESULT || opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_AUTO_RESULT)
-  {
-    bool streaming = false;
-    if(acquisitionMode == STREAM) streaming = true;
+    int dataSize;
+    if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A ||  opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_MANUAL ||
+            opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_RESULT || opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_AUTO_RESULT)
+    {
+        bool streaming = false;
+        if(acquisitionMode == STREAM) streaming = true;
 
-    if(hdr == HDR_SPATIAL)  dataSize = static_cast<int>(3 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) / 2 + 80); //16 bit distance/2 + 8 bit grayscale/2
-    else dataSize = static_cast<int>(3 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance + 8 bit grayscale;
+        if(hdr == HDR_SPATIAL)  dataSize = static_cast<int>(3 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) / 2 + 80); //16 bit distance/2 + 8 bit grayscale/2
+        else dataSize = static_cast<int>(3 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance + 8 bit grayscale;
 
-    sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE_GRAYSCALE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
+        sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE_GRAYSCALE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
 
-  }
+    }
 }
 
 /**
@@ -935,17 +962,17 @@ void Communication::getDistanceGrayscale(unsigned int acquisitionMode, unsigned 
  */
 void Communication::getDistanceAmplitude(unsigned int acquisitionMode, unsigned int opMode, unsigned int hdr)
 {  
-  if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A ||  opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_MANUAL)
-  {
-    int dataSize;
-    bool streaming = false;
-    if(acquisitionMode == STREAM) streaming = true;
+    if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A ||  opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_MANUAL)
+    {
+        int dataSize;
+        bool streaming = false;
+        if(acquisitionMode == STREAM) streaming = true;
 
-    if(hdr == HDR_SPATIAL) dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance/2 + 16 bit amplitude/2
-    else dataSize = static_cast<int>(4 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance + 16 bit amplitude
+        if(hdr == HDR_SPATIAL) dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance/2 + 16 bit amplitude/2
+        else dataSize = static_cast<int>(4 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance + 16 bit amplitude
 
-    sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE_AMPLITUDE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
-  }
+        sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE_AMPLITUDE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
+    }
 }
 
 /**
@@ -957,25 +984,25 @@ void Communication::getDistanceAmplitude(unsigned int acquisitionMode, unsigned 
  */
 void Communication::getDistance(unsigned int acquisitionMode, unsigned int opMode, unsigned int hdr)
 {  
-  int dataSize;
-  bool streaming = false;
-  if(acquisitionMode == STREAM) streaming = true;
+    int dataSize;
+    bool streaming = false;
+    if(acquisitionMode == STREAM) streaming = true;
 
-  if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_RESULT){
-    dataSize = 80; //only 1 pixel in imageHeader
-  }else if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_RESULT_DATA){
-    dataSize =208; //2*8x8 + 80 ->  64 pixels + imaheHeader
-  }else if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_INTERLEAVED_DATA){
-    dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 208);  //160*60 pix  + 64 pix + 80
-  }else{
-    if(hdr == HDR_SPATIAL){
-      dataSize = static_cast<int>((xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance
+    if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_RESULT){
+        dataSize = 80; //only 1 pixel in imageHeader
+    }else if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_B_RESULT_DATA){
+        dataSize =208; //2*8x8 + 80 ->  64 pixels + imaheHeader
+    }else if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_AB_INTERLEAVED_DATA){
+        dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 208);  //160*60 pix  + 64 pix + 80
     }else{
-      dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance
+        if(hdr == HDR_SPATIAL){
+            dataSize = static_cast<int>((xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance
+        }else{
+            dataSize = static_cast<int>(2 * (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80); //16 bit distance
+        }
     }
-  }
 
-  sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
+    sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_DISTANCE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
 }
 
 /**
@@ -985,7 +1012,7 @@ void Communication::getDistance(unsigned int acquisitionMode, unsigned int opMod
  */
 void Communication::getDcsDistanceAmplitude()
 {  
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_DCS_DISTANCE_AMPLITUDE, false);
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_DCS_DISTANCE_AMPLITUDE, false);
 }
 
 /**
@@ -995,7 +1022,7 @@ void Communication::getDcsDistanceAmplitude()
  */
 void Communication::getDcs()
 {
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_DCS, false);
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_DCS, false);
 }
 
 /**
@@ -1005,31 +1032,31 @@ void Communication::getDcs()
  */
 void Communication::getGrayscale(unsigned int acquisitionMode, unsigned int opMode, unsigned int hdr)
 {   
-  int dataSize;
-  if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A){
-    bool streaming = false;
-    if(acquisitionMode == STREAM) streaming = true;
+    int dataSize;
+    if(opMode == CommunicationConstants::ModeTofCam635::MODE_BEAM_A){
+        bool streaming = false;
+        if(acquisitionMode == STREAM) streaming = true;
 
-    if(hdr == HDR_SPATIAL)  dataSize = (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) / 2 + 80;
-    else dataSize = static_cast<int>((xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80);
+        if(hdr == HDR_SPATIAL)  dataSize = (xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) / 2 + 80;
+        else dataSize = static_cast<int>((xMax_ - xMin_ + 1) * (yMax_ - yMin_ + 1) + 80);
 
-    sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_GRAYSCALE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
-  }
+        sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_GET_GRAYSCALE, static_cast<uint8_t>(acquisitionMode), dataSize, streaming);
+    }
 }
 
 void Communication::getLensCalibrationData()
 {
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_LENS_CALIBRATION_DATA, 144); //(8+9)*8 + 8
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_LENS_CALIBRATION_DATA, 144); //(8+9)*8 + 8
 }
 
 void Communication::startStream(){
-  startStreamMode = true;
+    startStreamMode = true;
 }
 
 
 void Communication::stopStream()
 {
-  sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_STOP_STREAM, false);
+    sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_STOP_STREAM, false);
 }
 
 
@@ -1042,21 +1069,21 @@ void Communication::stopStream()
  */
 ErrorNumber_e Communication::getIntegrationTime3d(unsigned int &integrationTime)
 {
-  U16Helper integrationTimeHelper;
+    U16Helper integrationTimeHelper;
 
-  //Temporary connect the signal to the helper
-  boost::signals2::connection cn = sigReceivedIntegrationTime.connect(boost::bind(&U16Helper::onReceivedData, &integrationTimeHelper,  _1));
+    //Temporary connect the signal to the helper
+    sigReceivedIntegrationTime.Connect(&integrationTimeHelper, &U16Helper::onReceivedData);
 
-  //Send this command blocking
-  ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_INTEGRATION_TIME_3D, GET_INTEGRATION_TIME_DIS_SIZE);
+    //Send this command blocking
+    ErrorNumber_e status = sendCommandWithoutData(CommunicationConstants::CommandList::COMMAND_GET_INTEGRATION_TIME_3D, GET_INTEGRATION_TIME_DIS_SIZE);
 
-  //The helper has the value
-  integrationTime = integrationTimeHelper.getValue();
+    //The helper has the value
+    integrationTime = integrationTimeHelper.getValue();
 
-  //Disconnect the signal from the helper
-  cn.disconnect();
+    //Disconnect the signal from the helper
+    sigReceivedIntegrationTime.Disconnect(&integrationTimeHelper, &U16Helper::onReceivedData);
 
-  return status;
+    return status;
 }
 
 
@@ -1072,21 +1099,21 @@ ErrorNumber_e Communication::getIntegrationTime3d(unsigned int &integrationTime)
  */
 ErrorNumber_e Communication::setIntegrationTime3d(const unsigned int index, const unsigned int integrationTime)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_INTEGRATION_TIME_3D;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_INTEGRATION_TIME_3D;
 
-  //Add the index
-  output[CommunicationConstants::IntegrationTime::INDEX_INDEX_3D] = static_cast<uint8_t>(index);
+    //Add the index
+    output[CommunicationConstants::IntegrationTime::INDEX_INDEX_3D] = static_cast<uint8_t>(index);
 
-  //Add the time
-  Util::setUint16LittleEndian(output, CommunicationConstants::IntegrationTime::INDEX_INTEGRATION_TIME_3D, integrationTime);
+    //Add the time
+    Util::setUint16LittleEndian(output, CommunicationConstants::IntegrationTime::INDEX_INTEGRATION_TIME_3D, integrationTime);
 
-  //Send blocking
-  return sendCommand(output, SET_INTEGRATION_TIME_DIS_SIZE);
+    //Send blocking
+    return sendCommand(output, SET_INTEGRATION_TIME_DIS_SIZE);
 }
 
 /**
@@ -1097,7 +1124,7 @@ ErrorNumber_e Communication::setIntegrationTime3d(const unsigned int index, cons
  */
 ErrorNumber_e Communication::setIntegrationTimeGrayscale(const unsigned int integrationTime)
 {
-  return sendCommandUint16(CommunicationConstants::CommandList::COMMAND_SET_INTEGRATION_TIME_GRAYSCALE, static_cast<uint16_t>(integrationTime));
+    return sendCommandUint16(CommunicationConstants::CommandList::COMMAND_SET_INTEGRATION_TIME_GRAYSCALE, static_cast<uint16_t>(integrationTime));
 }
 
 /**
@@ -1108,32 +1135,30 @@ ErrorNumber_e Communication::setIntegrationTimeGrayscale(const unsigned int inte
  */
 ErrorNumber_e Communication::setModulationFrequency(const ModulationFrequency_e modulationFrequency)
 {
-  ErrorNumber_e status = ErrorNumber_e::ERROR_NUMBER_INVALID_PARAMETER;
+    ErrorNumber_e status = ErrorNumber_e::ERROR_NUMBER_INVALID_PARAMETER;
 
-  if(modulationFrequency == ModulationFrequency_e::MODULATION_FREQUENCY_10MHZ){
-    status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_10MHZ);
-  }else if(ModulationFrequency_e::MODULATION_FREQUENCY_20MHZ){
-    status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_20MHZ);
-  }else{
-    sendErrorSignal(status);
-  }
+    if(modulationFrequency == ModulationFrequency_e::MODULATION_FREQUENCY_10MHZ){
+        status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_10MHZ);
+    }else if(ModulationFrequency_e::MODULATION_FREQUENCY_20MHZ){
+        status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_20MHZ);
+    }else{
+        sendErrorSignal(status);
+    }
 
-
-  /*switch(modulationFrequency)
-  {
-    case ModulationFrequency_e::MODULATION_FREQUENCY_10MHZ:
-      status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_10MHZ);
-      break;
-    case ModulationFrequency_e::MODULATION_FREQUENCY_20MHz:
-      status = sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_FREQUENCY, CommunicationConstants::ModulationFrequency::VALUE_20MHZ);
-      break;
-    default:
-      sendErrorSignal(status);
-      break;
-  }*/
-
-  return status;
+    return status;
 }
+
+/**
+ * @brief Set modulation channel
+ *
+ * @param channel Selected modulation channel
+ * @return Error code from ErrorNumber_e
+ */
+ErrorNumber_e Communication::setModulationChannel(const int  channel)
+{
+    return sendCommand2xUint8(CommunicationConstants::CommandList::COMMAND_SET_MODULATION_CHANNEL, 0, channel);
+}
+
 
 /**
  * @brief Set the filter settings
@@ -1147,7 +1172,7 @@ ErrorNumber_e Communication::setModulationFrequency(const ModulationFrequency_e 
  */
 ErrorNumber_e Communication::setFilter(const unsigned int threshold, const unsigned int factor)
 {
-  return sendCommand2xUint16(CommunicationConstants::CommandList::COMMAND_SET_FILTER, static_cast<uint16_t>(threshold), static_cast<uint16_t>(factor));
+    return sendCommand2xUint16(CommunicationConstants::CommandList::COMMAND_SET_FILTER, static_cast<uint16_t>(threshold), static_cast<uint16_t>(factor));
 }
 
 
@@ -1162,21 +1187,21 @@ ErrorNumber_e Communication::setFilter(const unsigned int threshold, const unsig
  */
 ErrorNumber_e Communication::setFilterSpot(const unsigned int threshold, const unsigned int factor)
 {
-  return sendCommand2xUint16(CommunicationConstants::CommandList::COMMAND_SET_FILTER_SINGLE_SPOT, static_cast<uint16_t>(threshold), static_cast<uint16_t>(factor));
+    return sendCommand2xUint16(CommunicationConstants::CommandList::COMMAND_SET_FILTER_SINGLE_SPOT, static_cast<uint16_t>(threshold), static_cast<uint16_t>(factor));
 }
 
 
 ErrorNumber_e Communication::setDcsFilter(const bool enabled)
 {
-  uint8_t value = 0;
+    uint8_t value = 0;
 
-  //bool to 0/1
-  if (enabled)
-  {
-    value = 1;
-  }
+    //bool to 0/1
+    if (enabled)
+    {
+        value = 1;
+    }
 
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_DCS_FILTER, value);
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_DCS_FILTER, value);
 }
 
 /**
@@ -1186,16 +1211,14 @@ ErrorNumber_e Communication::setDcsFilter(const bool enabled)
  */
 ErrorNumber_e Communication::setGaussianFilter(const bool enabled)
 {
-  uint8_t value = 0;
+    uint8_t value = 0;
 
-  //bool to 0/1
-  if (enabled)
-  {
-    value = 1;
-  }
+    //bool to 0/1
+    if(enabled)
+        value = 1;
 
-  //sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_GAUSSIAN_FILTER, value, CommunicationConstants::Type::DATA_ACK);
-  return ErrorNumber_e::ERROR_NUMMBER_NO_ERROR;
+    //sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_GAUSSIAN_FILTER, value, CommunicationConstants::Type::DATA_ACK);
+    return ErrorNumber_e::ERROR_NUMMBER_NO_ERROR;
 }
 
 
@@ -1213,14 +1236,12 @@ ErrorNumber_e Communication::setGaussianFilter(const bool enabled)
  */
 ErrorNumber_e Communication::setCalibrationMode(const bool enabled)
 {
-  uint8_t value = 0;
+    uint8_t value = 0;
 
-  if (enabled)
-  {
-    value = 1;
-  }
+    if(enabled)
+        value = 1;
 
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_CALIBRATE_DRNU, value);
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_CALIBRATE_DRNU, value);
 }
 
 /***************************************************************************
@@ -1235,10 +1256,9 @@ ErrorNumber_e Communication::setCalibrationMode(const bool enabled)
  */
 void Communication::updateFirmware(const std::vector<uint8_t> &updateFile)
 {
-  state = CommunicationState_e::COMMUNICATION_STATE_UPDATE;
-  updateController.startUpdate(updateFile);
+    state = CommunicationState_e::COMMUNICATION_STATE_UPDATE;
+    updateController.startUpdate(updateFile);
 }
-
 
 
 /**
@@ -1253,103 +1273,100 @@ void Communication::updateFirmware(const std::vector<uint8_t> &updateFile)
  */
 ErrorNumber_e Communication::setRoi(const unsigned int xMin, const unsigned int yMin, const unsigned int xMax, const unsigned int yMax)
 {
+    xMin_ = xMin;
+    yMin_ = yMin;
+    xMax_ = xMax;
+    yMax_ = yMax;
 
-  xMin_ = xMin;
-  yMin_ = yMin;
-  xMax_ = xMax;
-  yMax_ = yMax;
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL + 4 * sizeof(uint16_t)];
 
+    memset(output, 0, sizeof(output));
 
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL + 4 * sizeof(uint16_t)];
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_ROI;
 
-  memset(output, 0, sizeof(output));
+    //xMin
+    Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_X_MIN, xMin);
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_ROI;
+    //yMin
+    Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_Y_MIN, yMin);
 
-  //xMin
-  Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_X_MIN, xMin);
+    //xMax
+    Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_X_MAX, xMax);
 
-  //yMin
-  Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_Y_MIN, yMin);
+    //yMax
+    Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_Y_MAX, yMax);
 
-  //xMax
-  Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_X_MAX, xMax);
-
-  //yMax
-  Util::setUint16LittleEndian(output, CommunicationConstants::ROI::INDEX_ROI_Y_MAX, yMax);
-
-  return sendCommand(output, SET_ROI_SIZE);
+    return sendCommand(output, SET_ROI_SIZE);
 }
 
 ErrorNumber_e Communication::setOffset(const int offset){
-  return sendCommandInt16(CommunicationConstants::CommandList::COMMAND_SET_OFFSET, static_cast<int16_t>(offset));
+    return sendCommandInt16(CommunicationConstants::CommandList::COMMAND_SET_OFFSET, static_cast<int16_t>(offset));
 }
 
-ErrorNumber_e Communication::setMinimalAmplitude(const unsigned index, const unsigned int amplitude){
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+ErrorNumber_e Communication::setMinimalAmplitude(const unsigned index, const unsigned int amplitude)
+{
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_MINIMAL_AMPLITUDE;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_MINIMAL_AMPLITUDE;
 
-  //Add the index
-  output[CommunicationConstants::Amplitude::INDEX_INDEX] = static_cast<uint8_t>(index);
+    //Add the index
+    output[CommunicationConstants::Amplitude::INDEX_INDEX] = static_cast<uint8_t>(index);
 
-  //Add the amplitude
-  Util::setUint16LittleEndian(output, CommunicationConstants::Amplitude::INDEX_AMPLITUDE, amplitude);
+    //Add the amplitude
+    Util::setUint16LittleEndian(output, CommunicationConstants::Amplitude::INDEX_AMPLITUDE, amplitude);
 
-  return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
-      
+    return sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+
 }
 
 ErrorNumber_e Communication::setBinning(const int binning){
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_BINNING, static_cast<uint8_t>(binning));
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_BINNING, static_cast<uint8_t>(binning));
 }
 
 ErrorNumber_e Communication::setFrameRate(const unsigned int FrameTime){
-  return sendCommandUint16(CommunicationConstants::CommandList::COMMAND_SET_FRAME_RATE, static_cast<uint16_t>(FrameTime));
+    return sendCommandUint16(CommunicationConstants::CommandList::COMMAND_SET_FRAME_RATE, static_cast<uint16_t>(FrameTime));
 }
 
 ErrorNumber_e Communication::setHdr(const unsigned int hdr){
-  hdrMode = hdr;
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_HDR, static_cast<uint8_t>(hdr));
+    hdrMode = hdr;
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_HDR, static_cast<uint8_t>(hdr));
 }
 
 ErrorNumber_e Communication::setInterferenceDetection(const bool enabled, const bool useLastValue, const int limit)
 {
-  uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
+    uint8_t output[CommunicationConstants::Command::SIZE_TOTAL];
 
-  memset(output, 0, sizeof(output));
+    memset(output, 0, sizeof(output));
 
-  //Add the command
-  output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_INTERFERENCE_DETECTION;
+    //Add the command
+    output[CommunicationConstants::Command::INDEX_COMMAND] = CommunicationConstants::CommandList::COMMAND_SET_INTERFERENCE_DETECTION;
 
-  //Add the payload
-  if(enabled)
-    output[CommunicationConstants::InterferenceDetection::INDEX_ENABLED] = 1;
+    //Add the payload
+    if(enabled)
+        output[CommunicationConstants::InterferenceDetection::INDEX_ENABLED] = 1;
 
-  if(useLastValue)
-    output[CommunicationConstants::InterferenceDetection::INDEX_USE_LAST_VALUE] = 1;
+    if(useLastValue)
+        output[CommunicationConstants::InterferenceDetection::INDEX_USE_LAST_VALUE] = 1;
 
-  Util::setUint16LittleEndian(output, CommunicationConstants::InterferenceDetection::INDEX_LIMIT, limit);
+    Util::setUint16LittleEndian(output, CommunicationConstants::InterferenceDetection::INDEX_LIMIT, limit);
 
-  sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
-  
-  return ERROR_NUMMBER_NO_ERROR;
+    sendCommand(output, CommunicationConstants::Command::SIZE_PAYLOAD);
+
+    return ERROR_NUMMBER_NO_ERROR;
 }
 
 ErrorNumber_e Communication::setIlluminationPower(const bool lowPower)
 {
-  uint8_t value = 0;
+    uint8_t value = 0;
 
-  if (lowPower)
-  {
-    value = 1;
-  }
+    if(lowPower)
+        value = 1;
 
-  return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_ILLUMINATION_POWER, value);
+    return sendCommandSingleByte(CommunicationConstants::CommandList::COMMAND_SET_ILLUMINATION_POWER, value);
 }
 
 

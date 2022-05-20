@@ -31,11 +31,11 @@ public:
     ErrorNumber_e setMode(const unsigned int mode);
 
     //signals
-    boost::signals2::signal<void (std::shared_ptr<TofCam635Image>)> sigReceivedDistance;
-    boost::signals2::signal<void (std::shared_ptr<TofCam635Image>)> sigReceivedGrayscale;
-    boost::signals2::signal<void (std::shared_ptr<TofCam635Image>)> sigReceivedDistanceGrayscale;
-    boost::signals2::signal<void (std::shared_ptr<TofCam635Image>)> sigReceivedDistanceAmplitude;
-    boost::signals2::signal<void (std::vector<uint8_t>)> sigReceivedLensCalibrationData;
+    Gallant::Signal1<std::shared_ptr<TofCam635Image>> sigReceivedDistance;
+    Gallant::Signal1<std::shared_ptr<TofCam635Image>> sigReceivedGrayscale;    
+    Gallant::Signal1<std::shared_ptr<TofCam635Image>> sigReceivedDistanceGrayscale;   
+    Gallant::Signal1<std::shared_ptr<TofCam635Image>> sigReceivedDistanceAmplitude;    
+    Gallant::Signal1<std::vector<uint8_t>>  sigReceivedLensCalibrationData;
 
 private:
 

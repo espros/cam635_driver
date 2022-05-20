@@ -14,23 +14,13 @@
 #include <vector>
 #include <string>
 #include <list>
-
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <queue>
 
-#include <boost/signals2.hpp>
-#include <boost/optional/optional_io.hpp>
-
-#include <boost/bind.hpp>
-#include <boost/asio.hpp>
-#include <boost/asio/serial_port.hpp>
-#include <boost/thread.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/date_time/posix_time/posix_time_types.hpp>
 #include "communication_constants.h"
-
+#include "cam_signal.h"
 
 namespace com_lib
 {
@@ -79,14 +69,12 @@ public:
     ssize_t sendData(uint8_t *data);
     bool sendCommand(uint8_t *data, uint8_t expectedType, bool blocking);
     void addGeneralAnswerType(const uint8_t type);
+    int readRxData(int size); //slot    
+    bool processData(std::vector<uint8_t> array);
+    std::vector<uint8_t> rxArray;
 
     //signals:
-    boost::signals2::signal< void (const std::vector<uint8_t>&, const uint8_t)>  sigReceivedData;
-
-    int readRxData(int size); //slot
-
-    std::vector<uint8_t> rxArray;
-    bool processData(std::vector<uint8_t> array);
+    Gallant::Signal2<std::vector<uint8_t>&, uint8_t> sigReceivedData;
 
   private:
     ssize_t sendCommandInternal(uint8_t *data, uint8_t expectedType_);
@@ -98,10 +86,6 @@ public:
     uint8_t getType(const std::vector<uint8_t> &array);
     void setBlocking (int should_block);
     int setInterfaceAttribs (int speed);
-
-    boost::asio::io_service io_service;
-    boost::asio::serial_port *serialPort;
-
 
     std::vector<std::string> deviceListString;   
     int expectedSize;    

@@ -22,12 +22,14 @@ namespace com_lib
  */
 class U16Helper
 {
-  public:
+public:
     U16Helper();
-    uint16_t getValue();  
-    void onReceivedData(const uint16_t value); //boost slot
+    uint16_t getValue();
 
-  private:
+//slot
+    void onReceivedData(const uint16_t value);
+
+private:
     uint16_t value;
 };
 

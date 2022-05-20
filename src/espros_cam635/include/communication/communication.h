@@ -17,12 +17,11 @@
 #include <exception>
 #include <list>
 #include <string>
-
-#include <boost/signals2.hpp>
-#include <boost/optional/optional_io.hpp>
-
-
 #include <iostream>
+
+#include "cam_signal.h"
+
+
 
 namespace com_lib
 {
@@ -33,7 +32,7 @@ namespace com_lib
  * For concrete devices, an own class must be implemented with some functions containing device
  * specific tasks.
  */
-class Communication: public Communication_IF
+class Communication  // : public Communication_IF
 {
 
   public:
@@ -46,18 +45,19 @@ class Communication: public Communication_IF
     ErrorNumber_e setPower(const bool enabled);
 
     //Information commands
+    Device_e      getDevice();
+    std::string   getDeviceName();
     ErrorNumber_e getIdentification(Device_e &device, bool &isBootloader);
     ErrorNumber_e getIdentification(Device_e &device, bool &isBootloader, unsigned int &version);
     ErrorNumber_e getChipInformation(uint16_t &chipId, uint16_t &waferId);
     ErrorNumber_e getFirmwareRelease(unsigned int &major, unsigned int &minor);
-    std::string getDeviceName();
-    Device_e    getDevice();
     ErrorNumber_e getProductionInfo(unsigned int &year, unsigned int &week);
 
     //Setup commands
     ErrorNumber_e setIntegrationTime3d(const unsigned int index, const unsigned int integrationTime);
     ErrorNumber_e setIntegrationTimeGrayscale(const unsigned int integrationTime);
-    ErrorNumber_e setModulationFrequency(const ModulationFrequency_e modulationFrequency);    
+    ErrorNumber_e setModulationFrequency(const ModulationFrequency_e modulationFrequency);
+    ErrorNumber_e setModulationChannel(const int  channel);
     ErrorNumber_e setMode(const unsigned int mode __attribute__((unused))){ return ERROR_NUMMBER_NO_ERROR; } 
     ErrorNumber_e setFilter(const unsigned int threshold, const unsigned int factor);
     ErrorNumber_e setFilterSpot(const unsigned int threshold, const unsigned int factor);
@@ -72,9 +72,6 @@ class Communication: public Communication_IF
     ErrorNumber_e setHdr(const unsigned int hdr);
     ErrorNumber_e setInterferenceDetection(const bool enabled, const bool useLastValue, const int limit);
     ErrorNumber_e setIlluminationPower(const bool lowPower);
-
-
-
 
     //Update commands 
     void updateFirmware(const std::vector<uint8_t> &updateFile);
@@ -102,25 +99,27 @@ class Communication: public Communication_IF
     void startStream();
     ErrorNumber_e getIntegrationTime3d(unsigned int &integrationTime);
 
+    //private signals:       
+    Gallant::Signal1<ErrorNumber_e &> sigErrorInternal;
+    Gallant::Signal1<uint32_t> sigReceivedIdentification;
+    Gallant::Signal1<uint16_t> sigReceivedIntegrationTime;
+    Gallant::Signal2<uint16_t, uint16_t> sigReceivedChipInformation;
+    Gallant::Signal1<uint32_t> sigReceivedFirmwareRelease;
+    Gallant::Signal2<uint8_t, uint8_t> sigReceivedProductionInfo;
+    Gallant::Signal0<void> sigReceivedAnswer;
+    Gallant::Signal0<void> sigReceivedAck;
 
-
-    //private signals:    
-    boost::signals2::signal<void (const ErrorNumber_e &errorNumber)> sigErrorInternal;
-    boost::signals2::signal<void (const uint32_t identification)> sigReceivedIdentification;
-    boost::signals2::signal<void (const uint16_t integrationTime)> sigReceivedIntegrationTime;
-    boost::signals2::signal<void (const uint16_t waferId, const uint16_t chipId)> sigReceivedChipInformation;    
-    boost::signals2::signal<void (const uint32_t firmwareRelease)> sigReceivedFirmwareRelease;    
-    boost::signals2::signal<void (const uint8_t year, const uint8_t week)> sigReceivedProductionInfo;
-    boost::signals2::signal<void ()> sigReceivedAck;    
-    boost::signals2::signal<void ()> sigReceivedAnswer;
+    Gallant::Signal1<int16_t> sigReceivedTemperature; //TODO...
+    Gallant::Signal1<unsigned int> sigFirmwareUpdateProgress;
+    Gallant::Signal1<ErrorNumber_e> sigError;
 
 
     //private slots:
-    void onReceivedData(const std::vector<uint8_t> &array, const uint8_t type);
+    void onReceivedData(std::vector<uint8_t> &array, uint8_t type);
     void onFirmwareUpdateProgress(const unsigned int progress);
     void onFirmwareUpdateFinished();
     void onTimeout();
-    //void onError(QSerialPort::SerialPortError errorMessage); //TODO...
+
 
   protected:
     ErrorNumber_e sendCommand(uint8_t *data, int size, bool streamMode = false);
@@ -129,12 +128,13 @@ class Communication: public Communication_IF
     ErrorNumber_e sendCommandUint16(const uint8_t command, const uint16_t payload);
     ErrorNumber_e sendCommandInt16(const uint8_t command, const int16_t payload);
     ErrorNumber_e sendCommand2xUint16(const uint8_t command, const uint16_t payload0, const uint16_t payload1);
+    ErrorNumber_e sendCommand2xUint8(const uint8_t command, const uint8_t payload0, const uint8_t payload1);
 
     Device_e connectedDevice;            ///<Stores the device type that is connected
     int hdrMode;
 
   private:
-    void sendErrorSignal(const ErrorNumber_e errorNumber);
+    void sendErrorSignal(ErrorNumber_e errorNumber);
     bool openInternal(std::string &portName, Device_e &device, bool &isBootloader);
     void processIdentification(const std::vector<uint8_t> &array);
     void processChipInformation(const std::vector<uint8_t> &array);
@@ -142,7 +142,6 @@ class Communication: public Communication_IF
     void processFirmwareRelease(const std::vector<uint8_t> &array);
     void processIntegrationTime(const std::vector<uint8_t> &array);
     void processProductionInfo(const std::vector<uint8_t>  &array);
-
     std::string createDeviceString(const Device_e device);
 
     //These functions must be implemented by device specific classes

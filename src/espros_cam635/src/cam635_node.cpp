@@ -4,6 +4,7 @@
 #include "camera635_driver.h"
 #include "cam635_image.h"
 
+
 using namespace com_lib;
 using namespace std;
 
@@ -102,7 +103,7 @@ void initialise()
     settings.runVideo = false;
     settings.updateParam = false;
 
-    ROS_INFO("Camera driver version 1.6.0");
+    ROS_INFO("Camera driver version 1.7.0");
 }
 
 //======================================================================
@@ -116,6 +117,7 @@ int main(int argc, char **argv)
     dynamic_reconfigure::Server<espros_cam635::espros_cam635Config> server;
     dynamic_reconfigure::Server<espros_cam635::espros_cam635Config>::CallbackType f;
     f = boost::bind(&updateConfig, _1, _2);
+
     server.setCallback(f);
 
     initialise();

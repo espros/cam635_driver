@@ -12,8 +12,7 @@
 
 #include <cstdint>
 #include <vector>
-#include <boost/signals2.hpp>
-#include <boost/optional/optional_io.hpp>
+#include "cam_signal.h"
 
 namespace com_lib
 {
@@ -29,8 +28,8 @@ class UpdateController
     void cancel();
 
     //signals:
-    boost::signals2::signal<void (const unsigned int progress)> sigUpdateProgress;
-    boost::signals2::signal<void ()> sigUpdateFinished;
+    Gallant::Signal1<unsigned int> sigUpdateProgress;
+    Gallant::Signal0<void> sigUpdateFinished;
 
     //public slots:
     void onReceivedAck();
